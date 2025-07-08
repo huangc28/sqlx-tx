@@ -17,20 +17,54 @@ type Config struct {
 	DeallocateAll bool // PostgreSQL specific
 }
 
+// ConfigOption is a function that modifies Config
+type ConfigOption func(*Config)
+
+// WithDeallocateAll enables PostgreSQL-specific prepared statement cleanup
+func WithDeallocateAll() ConfigOption {
+	return func(c *Config) {
+		c.DeallocateAll = true
+	}
+}
+
+// WithTxOptions sets custom transaction options
+func WithTxOptions(opts *sql.TxOptions) ConfigOption {
+	return func(c *Config) {
+		c.TxOptions = opts
+	}
+}
+
+// WithIsolationLevel sets the transaction isolation level
+func WithIsolationLevel(level sql.IsolationLevel) ConfigOption {
+	return func(c *Config) {
+		if c.TxOptions == nil {
+			c.TxOptions = &sql.TxOptions{}
+		}
+		c.TxOptions.Isolation = level
+	}
+}
+
+// WithReadOnly sets the transaction to read-only mode
+func WithReadOnly() ConfigOption {
+	return func(c *Config) {
+		if c.TxOptions == nil {
+			c.TxOptions = &sql.TxOptions{}
+		}
+		c.TxOptions.ReadOnly = true
+	}
+}
+
 // Execute runs a function within a transaction with default settings
 func Execute[T any](db *sqlx.DB, txFunc TxFunc[T]) (T, error) {
-	return ExecuteContext(context.Background(), db, nil, txFunc)
+	return ExecuteContext(context.Background(), db, txFunc)
 }
 
-// ExecuteWithConfig runs a function within a transaction with custom configuration
-func ExecuteWithConfig[T any](db *sqlx.DB, config *Config, txFunc TxFunc[T]) (T, error) {
-	return ExecuteContext(context.Background(), db, config, txFunc)
-}
-
-// ExecuteContext runs a function within a transaction with context support
-func ExecuteContext[T any](ctx context.Context, db *sqlx.DB, config *Config, txFunc TxFunc[T]) (result T, err error) {
-	if config == nil {
-		config = &Config{}
+// ExecuteContext runs a function within a transaction with context support and optional configuration
+func ExecuteContext[T any](ctx context.Context, db *sqlx.DB, txFunc TxFunc[T], options ...ConfigOption) (result T, err error) {
+	// Apply configuration options
+	config := &Config{}
+	for _, option := range options {
+		option(config)
 	}
 
 	tx, err := db.BeginTxx(ctx, config.TxOptions)
